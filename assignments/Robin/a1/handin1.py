@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 def train_model(gamma=1,seed=42,m=0.1):
     X_train, X_test, y_train, y_test = getdata()
     n_components = int(X_train.shape[0]*m)
-    ##print(n_components)
+
     rbf_feature = RBFSampler(gamma=gamma,n_components=n_components,random_state=seed)
 
     ## train
@@ -20,10 +20,8 @@ def train_model(gamma=1,seed=42,m=0.1):
 
     ## test
     X_test_features = rbf_feature.transform(X_test)
-    param_test,_,_,_ = lstsq(X_test_features,y_test)
-    res_test = norm((X_test_features @ param_test)-y_test)
-    #print(f'n: {n_components},train: {res_train}, test: {res_test}')
-    #return(res_train,res_test)
+    res_test = norm((X_test_features @ param_train)-y_test)
+
 
     return(res_train,res_test,norm(param_train))
 
@@ -44,12 +42,17 @@ def plots(train,test,train_norm,m):
     plt.plot(m,test,label="test")
     plt.xscale("log")
     plt.axvline(1,color="k",linestyle='--',label="interpolation point")
+    plt.ylim([0,1_000])
+    plt.ylabel("2-norm")
+    plt.xlabel("num features / num training points")
     plt.legend()
 
     ## 3. parameter l_2 norm ||theta||_2
     plt.subplot(1,2,2)
-    plt.plot(m,train_norm,label="train")
-    plt.axvline(1,color="k",linestyle='--',label="interpolation point")
+    plt.plot(m,train_norm,color="r",label=r'$\theta$')
+    plt.axvline(1,color="k",linestyle='--')
+    plt.ylim([0,1_000])
+    plt.xlabel("num features / num training points")
 
     plt.xscale("log")
     plt.legend()
