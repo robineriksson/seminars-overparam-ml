@@ -1,4 +1,9 @@
 ##' Robin Eriksson 30/9-21
+##'
+##' Dependencies:
+##'    scipy      (1.7.1)
+##'    numpy      (1.19.5)
+##'    matplotlib (3.4.3)
 
 import numpy as np
 from scipy.linalg import lstsq, norm
@@ -136,7 +141,7 @@ def plotres(mse,gamma,param_norm,mse_asympt,param_norm_asympt,gamma_asympt,r2,si
     ax2.set_ylim([0,cutoff])
     ax2.set_ylabel("squared 2-norm")
     ax2.set_xlabel(r'$\gamma$')
-    ax2.legend(loc='upper right',# bbox_to_anchor=(-0.125, 1.075),
+    ax2.legend(loc='upper right',
                ncol=1, fancybox=True, shadow=False)
 
     plt.show()
@@ -157,8 +162,8 @@ def main(n=10):
     for k in range(len(r2vec)):
         r2=r2vec[k]
         for i in range(len(gamma)):
-            p = int(gamma[i]*(2*N//3)) # training points
-            #print(f'p: {p}')
+            # training points
+            p = int(gamma[i]*(2*N//3))
 
             # generate data
             data=gen_data(N=N,p=p,r2=r2,sigma2=sigma2)
