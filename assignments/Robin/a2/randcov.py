@@ -58,7 +58,7 @@ def fit_model(data=None):
     """
     # unpack data
     if data is None:
-        data = gendata()
+        data = gen_data()
     X_train, X_test, y_train, y_test = data
 
     # train model
