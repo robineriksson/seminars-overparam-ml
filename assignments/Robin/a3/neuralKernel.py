@@ -1,14 +1,18 @@
 ##' Robin Eriksson 2021-11-16
+##'
+##' Dependencies:
+##'    scipy      (1.7.1)
+##'    numpy      (1.19.5)
+##'    matplotlib (3.4.3)
+##'    torch  (1.10.0+cu102)
+##'    tqdm  (4.62.3)
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import lstsq
 from scipy.stats import multivariate_normal
 import scipy.linalg as linalg
-
-from neural_network import FeedforwardNetwork
-from gaussian_process import conditioning
-import torch
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -21,8 +25,60 @@ import tqdm
 # instabilities yielding a non positive definite covariacne matrix
 EPS = 1e-7
 
+## -------------------------------------------------------------------------------
+## Taken from: nerual_network.py
+## -------------------------------------------------------------------------------
+class FeedforwardNetwork(nn.Module):
+    """Neural network implemented using NumPy."""
 
-## Part 1.1
+    def __init__(self, input_size, width=1000, beta=0.1, depth=4):
+        super(FeedforwardNetwork, self).__init__()
+        self.width = width
+        self.beta = beta
+        self.depth = depth
+        self.ws = [input_size] + [self.width for _l in range(self.depth)] + [1]
+
+        self.weights = []
+        self.biases = []
+        for i in range(depth + 1):
+            wi = nn.Parameter(torch.randn(self.ws[i], self.ws[i + 1]))
+            bi = nn.Parameter(torch.randn(self.ws[i + 1]))
+            self.register_parameter('weight_{}'.format(i), wi)
+            self.register_parameter('bias_{}'.format(i), bi)
+            self.weights += [wi]
+            self.biases += [bi]
+
+    def forward(self, X):
+        """Return output"""
+        Xf = self.get_features(X)
+        pred = 1/np.sqrt(self.ws[-2]) * Xf @ self.weights[-1] + self.beta * self.biases[-1]
+        return pred.flatten()
+
+    def get_features(self, X):
+        activ = X
+        for i in range(self.depth):
+            preactiv = 1/np.sqrt(self.ws[i]) * activ @ self.weights[i] + self.beta * self.biases[i]
+            activ = torch.relu(preactiv)
+        return activ
+## -------------------------------------------------------------------------------
+## Taken from: gaussian_process.py
+## -------------------------------------------------------------------------------
+def conditioning(c, y_obs):
+    n_obs = len(y_obs)
+    if n_obs == 0:
+        return np.zeros(c.shape[0]), c
+    cov_obs = c[:n_obs, :n_obs]
+    cov_eval_obs = c[n_obs:, :n_obs]
+    cov_eval = c[n_obs:, n_obs:]
+    inv_cov = np.linalg.inv(cov_obs)
+    m = cov_eval_obs @ inv_cov @ y_obs
+    cc = cov_eval - cov_eval_obs @ inv_cov @ cov_eval_obs.T
+    return m, cc
+
+## -------------------------------------------------------------------------------
+## Part 1
+## -------------------------------------------------------------------------------
+
 def finalLayer_fit(net,X,Y,beta=0.1):
     '''
     Fit the final layer using least squares regression
@@ -45,18 +101,11 @@ def finalLayer_fit(net,X,Y,beta=0.1):
 
     return net
 
-## Part 1.2
 def relu(x):
     '''
     Computes the classical ReLU on input x, works on numpy matrices per element
     '''
     return np.maximum(x,0)
-
-def reludot(x):
-    '''
-    returns the derivative of the relu
-    '''
-    return (x>0).astype(x.dtype)
 
 def kernel_approx(X,beta=0.1,n_layers=1,size=1000):
     '''
@@ -80,9 +129,25 @@ def kernel_approx(X,beta=0.1,n_layers=1,size=1000):
 
     return K
 
+def part1(samples=5,savefig=True):
+    '''
+    Part 1: Neural Network as a Gaussian Process
 
+    Given observation from the function f = cos(x)*sin(x)
+    we train a regression model to approximate the function.
 
-def part1(seeding=5):
+    Generates 5 samples from
+    1) Only final layer trained network (lsqfit)
+    2) Neural Network approximated kernel Gaussian Process
+
+    For the latter Credible intervals (68,95,99) are included in the plot.
+
+    Inputs:
+    samples -- number of samples from NN and GP in the plot.
+
+    Outputs:
+    generates a pyplot, nothing returned.
+    '''
     N_eval = 100
     n_layers = 4
     beta = 0.1
@@ -107,7 +172,7 @@ def part1(seeding=5):
     X_eval_pth = torch.Tensor(X_eval)
 
     ## Train only the final layer
-    for i in range(seeding):
+    for i in range(samples):
         # Define neural network
         torch.manual_seed(i) ## for NN
         net = FeedforwardNetwork(2, beta=beta, depth=n_layers, width=width)
@@ -126,7 +191,7 @@ def part1(seeding=5):
     np.random.seed(0) ## for GP
     X_all = np.vstack([X_obs, X_eval])
     c = kernel_approx(X_all,beta=beta,n_layers=n_layers,size=K)
-    m, cc = conditioning(c, Y_obs)
+    m, cc = conditioning(c, Y_obs) # see gaussian_process
 
     ## Sample the GP
     normal = multivariate_normal(mean=m.flatten(), cov=cc + EPS*np.eye(cc.shape[0]))
@@ -145,12 +210,30 @@ def part1(seeding=5):
     plt.plot(gamma_obs, Y_obs, '*', color='black', ms=10,label='Observed')
     plt.xlabel('gamma')
     plt.ylabel('f')
-    plt.legend()
-    plt.show()
+    plt.legend(loc='upper right')
+    if savefig:
+        plt.savefig("part1.png",bbox_inches='tight')
+    else:
+        plt.show()
 
+## -------------------------------------------------------------------------------
+## Part 2
+## -------------------------------------------------------------------------------
 
 def gradient_train(net, epochs, lr, X_obs, Y_obs):
-    # Train
+    '''
+    Given the network, compute the l2 gradient descent and update the
+    weights
+
+    input:
+    net -- pytorch network
+    epochs -- number of data passthroughs
+    lr -- learning rate
+    X_obs -- input observations
+    Y_obs -- output observations
+    returns:
+    net -- trained network
+    '''
     msg = 'Epoch = {} - loss = {:0.2f}'
     pbar = tqdm.tqdm(initial=0, total=epochs, desc=msg.format(0, 0))
     optimizer = optim.SGD(net.parameters(), lr=lr)
@@ -168,9 +251,27 @@ def gradient_train(net, epochs, lr, X_obs, Y_obs):
 
     return net
 
+def reludot(x):
+    '''
+    returns the derivative of the relu
+    '''
+    return (x>0).astype(x.dtype)
+
 def NTK(X,beta=0.1,n_layers=1,size=1000, EPS_scale=1):
     '''
     Approximates the Neural tangent kernel
+
+    input:
+    X -- All available data
+    beta -- kernel parameters
+    n_layers -- number of layers in network
+    size -- number of samples used to estimate the covariance/kernel
+    EPS_scale -- a scaling factor for the global EPS used to get
+                 around non semi-definite matrices
+
+    returns:
+    theta -- Neural tangent kernel
+
     '''
     n0 = X.shape[1]
     K = 1/n0*(X @ X.T) + beta**2
@@ -203,6 +304,8 @@ def NTK(X,beta=0.1,n_layers=1,size=1000, EPS_scale=1):
 def NTK_train(X_obs,X_eval,Y_obs,beta,n_layers,size,samples):
     '''
     Estimates the NTK trained network.
+
+
     '''
 
 
@@ -240,8 +343,26 @@ def NTK_train(X_obs,X_eval,Y_obs,beta,n_layers,size,samples):
 
 
 
-def part2(samples=4):
+def part2(samples=5,savefig=True):
+    '''
+    Part 2: Neural Tangent Kernel
 
+    Given observation from the function f = cos(x)*sin(x)
+    we train a regression model to approximate the function.
+
+    Generates 5 samples from
+    1) Gradient descent trained (wide) neural network
+    2) Neural tangent trained neural network (we can skip to final step as the training is
+       deterministic).
+
+    For the latter Credible intervals (68,95,99) are included in the plot.
+
+    Inputs:
+    samples -- number of samples from the two NN
+
+    Outputs:
+    generates a pyplot, nothing returned.
+    '''
     N_eval = 100
     n_layers = 4
     beta = 0.1
@@ -305,9 +426,12 @@ def part2(samples=4):
     plt.xlabel('gamma')
     plt.ylabel('f')
     plt.legend()
-    plt.show()
+    if savefig:
+        plt.savefig("part2.png",bbox_inches='tight')
+    else:
+        plt.show()
 
 
 if __name__ == "__main__":
-    part1(5)
-    part2(5)
+    part1(5,True)
+    part2(5,True)
